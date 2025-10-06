@@ -12,7 +12,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/auth", authRoutes);
 
 // Test protected API
-const authMiddleware = require("./middlewares/auth");
+const authMiddleware = require("./middlewares/authMiddleware");
 app.get("/api/me", authMiddleware, (req, res) => {
   res.json({ message: "Welcome!", user: req.user });
 });

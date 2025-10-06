@@ -6,53 +6,73 @@ const { generateToken, generateRefreshToken } = require("../utils/jwt");
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 const JWT_EXPIRES = "1h"; // Access token 1h
 
+// Refresh Token
+exports.refresh = (req, res) => {
+  const { token } = req.body;
+  if (!token)
+    return res.status(401).json({ message: "Không có refresh token" });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+    const accessToken = generateToken({ _id: decoded.id, role: decoded.role });
+    res.json({ accessToken });
+  } catch {
+    res.status(403).json({ message: "Refresh token không hợp lệ" });
+  }
+};
+
 // resgister api
 exports.register = async (req, res) => {
+  const { username, email, phone, password, role } = req.body;
+
+  // ✅ Validate
+  if (!username || !email || !phone || !password) {
+    return res
+      .status(400)
+      .json({ message: "Vui lòng nhập đủ username, email, phone và password" });
+  }
+
   try {
-    const { username, email, password, role } = req.body;
-
-    // 1. Kiểm tra dữ liệu đầu vào
-    if (!username || !email || !password) {
-      return res.status(400).json({ message: "Vui lòng nhập đủ thông tin" });
-    }
-
-    // 2. Kiểm tra email đã tồn tại chưa
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    // ✅ Kiểm tra email đã tồn tại
+    const emailExists = await pool.query("SELECT * FROM users WHERE email=$1", [
+      email,
+    ]);
+    if (emailExists.rows.length > 0) {
       return res.status(409).json({ message: "Email đã tồn tại" });
     }
 
-    // 3. Mã hoá mật khẩu
+    // ✅ Kiểm tra phone đã tồn tại
+    const phoneExists = await pool.query("SELECT * FROM users WHERE phone=$1", [
+      phone,
+    ]);
+    if (phoneExists.rows.length > 0) {
+      return res.status(409).json({ message: "Số điện thoại đã tồn tại" });
+    }
+
+    // ✅ Mã hoá password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 4. Tạo user mới
-    const user = new User({
-      username,
-      email,
-      password: hashedPassword,
-      role: role || "employee", // mặc định là nhân viên
-    });
+    // ✅ Thêm user mới
+    const insertUser = await pool.query(
+      `INSERT INTO users (username, email, phone, password_hash)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, username, email, phone`,
+      [username, email, phone, hashedPassword]
+    );
 
-    await user.save();
-
-    // 5. Tạo token trả về (nếu muốn login luôn sau khi đăng ký)
+    const user = insertUser.rows[0];
     const accessToken = generateToken(user);
     const refreshToken = generateRefreshToken(user);
 
     res.status(201).json({
-      message: "Đăng ký tài khoản thành công",
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-      },
+      message: "Đăng ký thành công",
+      user,
       accessToken,
       refreshToken,
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Lỗi server", error: err.message });
+    res.status(500).json({ error: err.message });
   }
 };
 
